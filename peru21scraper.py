@@ -99,4 +99,6 @@ class Peru21Scraper(object):
 
 Scraper = Peru21Scraper(maximum_units=5, scrape_opinions=False)
 hot_topics_dict = Scraper.get()
+hot_topics_titles = Scraper.get_hot_topics_titles()
+print(hot_topics_titles)
 Scraper.save()
