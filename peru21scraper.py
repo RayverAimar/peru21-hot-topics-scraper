@@ -2,6 +2,8 @@ from bs4 import BeautifulSoup
 import requests
 import json
 
+ACCEPTED = 200
+
 class Peru21Scraper(object):
     def __init__(self, maximum_units=5, scrape_opinions=False):
         self.__url = "https://peru21.pe"
@@ -12,16 +14,21 @@ class Peru21Scraper(object):
 
     def __get_soup(self, url, parser='lxml'):
         response = requests.get(url)
-        soup = BeautifulSoup(response.text, parser)
+        if response.status_code != ACCEPTED:
+            return None
+        soup = BeautifulSoup(response.text, parser)        
         return soup
     
     def __get_links_and_titles(self, sections):
         links = []
         self.hot_topics_titles = []
         for section in sections:
+            # Extract title of topic
             title = section.a.get_text()
-            links.append(section.a.get('href'))
-            self.hot_topics_titles.append(title)
+            if section.a:
+                # Extract link of hot-topic
+                links.append(section.a.get('href'))
+                self.hot_topics_titles.append(title)
             if len(links) == self.__maximum_units:
                 break
         return links, self.hot_topics_titles
@@ -31,10 +38,14 @@ class Peru21Scraper(object):
         titles = []
         datetimes = []
         for section in sections:
+            if not section.a:
+                continue
             if '21' in section.a.get_text():  # 'La voz del 21' tends to use a different website than what a normal note uses so it is not handeable by the moment
                 continue
             datetime = section.find('p', attrs={'class':'story-item__date'}).get_text()
             section = section.find('h2')
+            if not section.a:
+                continue
             title = section.a.get_text()
             if self.__must_not_contain and self.__must_not_contain.lower() in title.lower():
                 continue
@@ -53,38 +64,48 @@ class Peru21Scraper(object):
         return title, subtitle, content
     
     def get(self):
-        soup = self.__get_soup(self.__url)
-        hot_sections = soup.find('ul', attrs={'class':'header__featured'}).find_all('li')[1:] # Section "Lo último" is a mix of non-interesting topics
-        hot_sections_links, hot_sections_titles = self.__get_links_and_titles(hot_sections)
+        try:
+            soup = self.__get_soup(self.__url)
+            hot_sections = soup.find('ul', attrs={'class':'header__featured'}).find_all('li')[1:] # Section "Lo último" is a mix of non-interesting topics
+            hot_sections_links, hot_sections_titles = self.__get_links_and_titles(hot_sections)
 
-        for index, title in enumerate(hot_sections_titles):
-            soup_current_topic = self.__get_soup(hot_sections_links[index])
-            notes = soup_current_topic.find('div', attrs={'class':'paginated-list paginated-list--default'}).find_all('div', attrs={'class':'story-item__left'})
-            notes_links, notes_titles, notes_datetimes = self.__get_links_titles_datetime_of_news(notes)
-            notes_links = [self.__url + note for note in notes_links] # Re-Build link as it may be relative
+            for index, title in enumerate(hot_sections_titles):
+                soup_current_topic = self.__get_soup(hot_sections_links[index])
+                notes = soup_current_topic.find('div', attrs={'class':'paginated-list paginated-list--default'}).find_all('div', attrs={'class':'story-item__left'})
+                notes_links, notes_titles, notes_datetimes = self.__get_links_titles_datetime_of_news(notes)
+                notes_links = [self.__url + note for note in notes_links] # Re-Build link as it may be relative
 
-            dict_notes_current_topic = {}
+                dict_notes_current_topic = {}
 
-            for index, note_link in enumerate(notes_links):
-                dict_current_note = {}
-                soup_current_topic = self.__get_soup(note_link)
-                dict_current_note['title'], dict_current_note['subtitle'], dict_current_note['content'] = self.__get_title_subtitle_content_of_news(soup_current_topic)
-                dict_current_note['datetime'] = notes_datetimes[index]
-                dict_notes_current_topic[index] = dict_current_note
+                for index, note_link in enumerate(notes_links):
+                    dict_current_note = {}
+                    soup_current_topic = self.__get_soup(note_link)
+                    dict_current_note['title'], dict_current_note['subtitle'], dict_current_note['content'] = self.__get_title_subtitle_content_of_news(soup_current_topic)
+                    dict_current_note['datetime'] = notes_datetimes[index]
+                    dict_notes_current_topic[index] = dict_current_note
 
-            self.dict_hot_topics[title] = dict_notes_current_topic
-        return self.dict_hot_topics
+                self.dict_hot_topics[title] = dict_notes_current_topic
+            return self.dict_hot_topics
+        except Exception as e:
+            print('Error')
+            print(e)
+            print()
 
     def print_current_hot_topics(self):
         if not self.hot_topics_titles:
             soup = self.__get_soup(self.__url)
+            if not soup:
+                raise RuntimeError('Not a valid soup. Error in the request')
             hot_sections = soup.find('ul', attrs={'class':'header__featured'}).find_all('li')[1:] # Section "Lo último" is a mix of non-interesting topics
-            self.__get_links_and_titles(hot_sections)
-    
-        print("Current hot-topics in Peru21 are listed below:")
-        for title in self.hot_topics_titles:
-            print('\t', title)    
-    
+            if hot_sections:
+                self.__get_links_and_titles(hot_sections)
+        if self.hot_topics_titles:
+            print("Current hot-topics in Peru21 are listed below:")
+            for title in self.hot_topics_titles:
+                print('\t', title)
+        else:
+            raise RuntimeError("Not Hot-Topic Titles Found!")
+
     def get_hot_topics_titles(self):
         if not self.hot_topics_titles:
             soup = self.__get_soup(self.__url)
