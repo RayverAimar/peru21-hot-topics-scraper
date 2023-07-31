@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 import requests
 import json
+import time
 
 ACCEPTED = 200
 
@@ -24,8 +25,8 @@ class Peru21Scraper(object):
         self.hot_topics_titles = []
         for section in sections:
             # Extract title of topic
-            title = section.a.get_text()
             if section.a:
+                title = section.a.get_text()
                 # Extract link of hot-topic
                 links.append(section.a.get('href'))
                 self.hot_topics_titles.append(title)
@@ -57,18 +58,34 @@ class Peru21Scraper(object):
         return links, titles, datetimes
     
     def __get_title_subtitle_content_of_news(self, soup):
-        title = soup.find('h1').get_text()
-        subtitle = soup.find('h2', attrs={'class': 'sht__summary'}).get_text()
-        content = soup.find('div', attrs={'class': 'story-contents__content'}).get_text()
-        content = content.replace('VIDEO RECOMENDADO', '') # Delete last two words from content
+        title = None
+        subtitle = None
+        content = None
+        # Extract title
+        title_tag = soup.find('h1')
+        if title_tag:
+            title = title_tag.get_text()
+        subtitle_tag = soup.find('h2', attrs={'class': 'sht__summary'})
+        if subtitle_tag:
+            subtitle = subtitle_tag.get_text()
+        content_tag = soup.find('div', attrs={'class': 'story-contents__content'})
+        if content_tag:
+            content = content_tag.get_text()
+            content = content.replace('VIDEO RECOMENDADO', '') # Delete last two words from content
         return title, subtitle, content
     
     def get(self):
         try:
+            start = time.time()
             soup = self.__get_soup(self.__url)
+            if not soup:
+                raise RuntimeError(f'Error in the request, not found \'{self.__url}\'')
             hot_sections = soup.find('ul', attrs={'class':'header__featured'}).find_all('li')[1:] # Section "Lo último" is a mix of non-interesting topics
+            if not hot_sections:
+                raise RuntimeError('Error in the request, not found Tag \'ul\' with class \'header__featured\'.')
             hot_sections_links, hot_sections_titles = self.__get_links_and_titles(hot_sections)
-
+            if not hot_sections_titles:
+                raise RuntimeError('Titles for hot-sections not found')
             for index, title in enumerate(hot_sections_titles):
                 soup_current_topic = self.__get_soup(hot_sections_links[index])
                 notes = soup_current_topic.find('div', attrs={'class':'paginated-list paginated-list--default'}).find_all('div', attrs={'class':'story-item__left'})
@@ -80,11 +97,15 @@ class Peru21Scraper(object):
                 for index, note_link in enumerate(notes_links):
                     dict_current_note = {}
                     soup_current_topic = self.__get_soup(note_link)
+                    if not soup_current_topic:
+                        raise RuntimeError(f'Error in the request, not found \'{note_link}\'')
                     dict_current_note['title'], dict_current_note['subtitle'], dict_current_note['content'] = self.__get_title_subtitle_content_of_news(soup_current_topic)
                     dict_current_note['datetime'] = notes_datetimes[index]
                     dict_notes_current_topic[index] = dict_current_note
 
                 self.dict_hot_topics[title] = dict_notes_current_topic
+            end = time.time()
+            print(f'Elapsed time: {(end - start):.2f} seconds.')
             return self.dict_hot_topics
         except Exception as e:
             print('Error')
